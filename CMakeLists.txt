@@ -145,3 +145,9 @@ target_link_libraries(
 
 add_executable(neural_mapping_node src/neural_mapping_node.cpp)
 target_link_libraries(neural_mapping_node neural_mapping_lib)
+
+add_executable(build_occgrid_node src/build_occgrid_node.cpp)
+target_link_libraries(build_occgrid_node neural_mapping_lib)
+
+add_executable(eval_checkpoints_node src/eval_checkpoints_node.cpp)
+target_link_libraries(eval_checkpoints_node neural_mapping_lib)

@@ -1,0 +1,106 @@
+%YAML:1.0
+# rosrun neural_mapping neural_mapping_node src/RIM2/rim/config/neural_rgbd/neural_rgbd.yaml src/RIM2/data/neural_rgbd_data/kitchen_kitti_format
+
+base_config: "../base.yaml"
+scene_config: "fast_livo.yaml"
+
+iter_step: 20000
+
+trace_iter: 100 # sphere tracing iteration times
+
+leaf_sizes: 0.2
+fill_level: 1
+bce_sigma: 1.0 # if get floaters, increase this value
+sphere_trace_thr: 1e-3
+
+# IFC/frame-plane GT depth supervision experiment.
+# enable: 0 keeps the original LiDAR depth supervision.
+# enable: 1 replaces sampled LiDAR depths with GT depths where the sampled ray
+#           has a valid frame-plane GT mask.
+# prioritize_sampling: 1 oversamples GT-depth candidate rays before filling the
+#                         rest with original random LiDAR rays.
+# prioritize_sampling: 0 keeps the original random ray sampling distribution.
+# sample_ratio is only used when prioritize_sampling is 1.
+frame_plane_gt_depth:
+   enable: 1
+   prioritize_sampling: 0
+   root: "frame_plane_gt_bim"
+   sample_ratio: 1.0
+   min_points: 32
+
+distill_weight: 1.0           # distillation + pseudo-label loss 가중치
+teacher_iter_step: 20000      # teacher 사전 학습 iteration (0 = k_iter_step과 동일)
+
+hist_eq:
+   method: 3
+   clahe_clip_limit: 2.0
+   clahe_tile_grid: 8
+
+camera:
+   model: 0 # 0: pinhole; 1: equidistant
+   width: 1280
+   height: 720
+
+
+   fx: 580.9368694958202
+   fy: 580.8762078586867
+   cx: 599.8374474091759
+   cy: 327.7756256909918
+
+   d0: -0.01179594666649537
+   d1: -0.005658416709347814
+   d2: -0.0002670633764150449
+   d3: 0.000576623385805698
+   d4: 0.0
+
+   extrinsic_T: [ 0.0, 0.0, 0.0 ]
+   extrinsic_R: [1, 0, 0,
+                 0, 1, 0,
+                 0, 0, 1]
+
+   # [확인 필요] Camera → LiDAR 외부 파라미터 (반드시 직접 캘리브레이션)
+   # kalibr 또는 target-based calibration 도구로 캘리브레이션 후 입력
+   # Rcl: LiDAR → 카메라 좌표계 회전 행렬 (row-major, 3x3)  p_cam = Rcl * p_lidar + Pcl
+   # Pcl: 라이다 원점의 카메라 좌표계에서의 위치 [tx, ty, tz] (단위: m)
+   # Rcl: [-0.061336, -0.99771405, -0.0283648,
+   #       0.00798572, 0.02792686, -0.99957807,
+   #       0.99808523, -0.06153663, 0.00625455,]
+   # Pcl: [0.09162524,
+   #  0.04072245,
+   #  -0.2027569]
+   Rcl:  [-0.00428133, -0.99998031, -0.00458851,
+           0.03408967,  0.00443993, -0.99940892,
+           0.99940961, -0.00443522,  0.03406999 ]
+   Pcl: [ 0.01900277,
+          -0.08567301,
+          -0.1253142]
+
+extrinsic:
+   # lidar to camera
+   T_C_L: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [ -0.00428133, -0.99998031, -0.00458851, 0.01900277,
+               0.03408967,  0.00443993, -0.99940892, -0.08567301,
+               0.99940961, -0.00443522,  0.03406999, -0.1253142,
+              0.0, 0.0, 0.0, 1.0 ]
+
+   # lidar to base(imu)
+   T_B_L: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [ 1.0, 0.0, 0.0, 0.0, 
+              0.0, 1.0, 0.0, 0.0,
+              0.0, 0.0, 1.0, 0.0,
+              0.0, 0.0, 0.0, 1.0 ]
+
+map:
+   map_origin: !!opencv-matrix
+      rows: 1
+      cols: 3
+      dt: d
+      data: [ 20, 0, 20 ]
+   
+   map_size: 100

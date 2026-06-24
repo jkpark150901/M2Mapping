@@ -29,6 +29,7 @@ extern int k_octree_level, k_fill_level;
 extern int k_map_resolution;
 
 extern int k_iter_step, k_export_interval, k_export_ckp_interval,
+    k_ckpt_interval,
     k_surface_sample_num, k_free_sample_num;
 extern float k_color_batch_pt_num;
 extern int k_batch_num;

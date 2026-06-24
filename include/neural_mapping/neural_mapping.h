@@ -28,6 +28,15 @@ public:
              const std::filesystem::path &_data_path = "");
 #endif
 
+  // Build occgrid only (no training). Use with mode=0 constructor.
+  bool run_build_occgrid();
+
+  // Load a per-iter checkpoint (weights only, octree kept) and run render/mesh.
+  // out_path: directory where results are written.
+  void eval_checkpoint(const std::filesystem::path &ckpt_path,
+                       const std::filesystem::path &out_path,
+                       bool do_render, bool do_mesh);
+
 private:
   rog_map::ROGMap::Ptr rog_map_ptr;
 
@@ -125,6 +134,7 @@ private:
 
   float export_test_image(int idx = -1, const std::string &prefix = "");
   void export_checkpoint();
+  void export_checkpoint(int iter);  // saves to checkpoints/iter_XXXXXX/
 
   void load_pretrained(const std::filesystem::path &_pretrained_path);
   void load_checkpoint(const std::filesystem::path &_checkpoint_path);

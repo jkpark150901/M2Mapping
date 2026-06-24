@@ -34,8 +34,10 @@ rgb_weight: 10.0
 
 # visualization
 vis_frame_step: 10
+for_visualization: 1 # save intermediate tensors/ply files for offline visualization
+visualization_interval: 100 # training iteration interval for visualization dumps
+visualization_max_points: 200000 # max points per dump; <=0 disables limiting
 
 export_interval: 1000 # every export_interval frames, the test will be exported
-ckpt_interval: 0     # save checkpoint every N iters (0 = disabled)
 export_colmap_format: 0 # 0: disable; 1: for 3dgs; 2: for nerfstudio colmap
 export_train_pcl: 0 # 0: disable; 1: enable

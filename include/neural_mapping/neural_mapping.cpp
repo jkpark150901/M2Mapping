@@ -423,6 +423,9 @@ void NeuralSLAM::train_callback(const int &_iter,
   if (_iter == k_export_ckp_interval) {
     export_checkpoint();
   }
+  if (k_ckpt_interval > 0 && _iter > 0 && _iter % k_ckpt_interval == 0) {
+    export_checkpoint(_iter);
+  }
 }
 
 void NeuralSLAM::prefilter_data(const bool &export_img) {
@@ -522,11 +525,134 @@ void NeuralSLAM::prefilter_data(const bool &export_img) {
  *
  * @return bool Success status of the map building operation
  */
+// ---------------------------------------------------------------------------
+// OccGrid cache helpers
+// ---------------------------------------------------------------------------
+namespace {
+
+struct OccGridMeta {
+  uint32_t magic = 0x4F434743u;  // "OCCG"
+  uint32_t version = 1;
+  int64_t  train_depth_num;
+  float    leaf_size;
+  float    min_range;
+  float    max_range;
+  int      prob_map_en;
+  float    cfg_inner_map_size;   // initial (config) value before clamping
+  // computed map params
+  float    map_origin[3];
+  float    inner_map_size;
+  float    x_min, x_max, y_min, y_max, z_min, z_max;
+  int      octree_level;
+  int      map_resolution;
+  float    map_size;
+  float    map_size_inv;
+  int      fill_level;
+};
+
+std::filesystem::path occ_cache_dir() {
+  return k_dataset_path / "occgrid_cache";
+}
+
+bool save_occ_cache(const torch::Tensor &dense_voxels,
+                    const OccGridMeta &meta) {
+  try {
+    auto dir = occ_cache_dir();
+    std::filesystem::create_directories(dir);
+    // write meta
+    std::ofstream mf(dir / "meta.bin", std::ios::binary);
+    mf.write(reinterpret_cast<const char *>(&meta), sizeof(meta));
+    mf.close();
+    // write quantized points
+    torch::save({dense_voxels.cpu()}, (dir / "qpts.pt").string());
+    std::cout << "[occgrid_cache] Saved to " << dir << '\n';
+    return true;
+  } catch (const std::exception &e) {
+    std::cerr << "[occgrid_cache] Save failed: " << e.what() << '\n';
+    return false;
+  }
+}
+
+// Returns loaded qpts tensor on success, empty tensor on miss/mismatch.
+torch::Tensor try_load_occ_cache(const OccGridMeta &key, OccGridMeta &out_meta) {
+  auto dir = occ_cache_dir();
+  auto meta_path = dir / "meta.bin";
+  auto qpts_path = dir / "qpts.pt";
+  if (!std::filesystem::exists(meta_path) || !std::filesystem::exists(qpts_path))
+    return {};
+
+  std::ifstream mf(meta_path, std::ios::binary);
+  if (!mf.read(reinterpret_cast<char *>(&out_meta), sizeof(out_meta))) return {};
+
+  if (out_meta.magic != key.magic || out_meta.version != key.version)
+    return {};
+  if (out_meta.train_depth_num   != key.train_depth_num   ||
+      out_meta.prob_map_en       != key.prob_map_en        ||
+      std::abs(out_meta.leaf_size         - key.leaf_size)         > 1e-6f ||
+      std::abs(out_meta.min_range         - key.min_range)         > 1e-6f ||
+      std::abs(out_meta.max_range         - key.max_range)         > 1e-6f ||
+      std::abs(out_meta.cfg_inner_map_size- key.cfg_inner_map_size)> 1e-4f)
+    return {};
+
+  std::vector<torch::Tensor> tensors;
+  torch::load(tensors, qpts_path.string());
+  if (tensors.empty()) return {};
+  std::cout << "[occgrid_cache] Cache hit — skipping build (" << occ_cache_dir() << ")\n";
+  return tensors[0];
+}
+
+}  // namespace
+// ---------------------------------------------------------------------------
+
 bool NeuralSLAM::build_occ_map() {
   std::cout << "Starting occupancy map building from raw data...\n";
   static auto timer_cal_prior = llog::CreateTimer("cal_prior");
   timer_cal_prior->tic();
 
+  // ------------------------------------------------------------------
+  // Cache lookup: build cache key from config-level params, try to load.
+  // ------------------------------------------------------------------
+  const int64_t train_depth_num =
+      data_loader_ptr->dataparser_ptr_->train_depth_pack_.depth.size(0);
+  OccGridMeta cache_key{};
+  cache_key.train_depth_num    = train_depth_num;
+  cache_key.leaf_size          = k_leaf_size;
+  cache_key.min_range          = k_min_range;
+  cache_key.max_range          = k_max_range;
+  cache_key.prob_map_en        = k_prob_map_en ? 1 : 0;
+  cache_key.cfg_inner_map_size = k_inner_map_size;
+
+  OccGridMeta loaded_meta{};
+  auto cached_qpts = try_load_occ_cache(cache_key, loaded_meta);
+  if (cached_qpts.defined()) {
+    // Restore map params from cache
+    k_map_origin     = torch::tensor({loaded_meta.map_origin[0],
+                                      loaded_meta.map_origin[1],
+                                      loaded_meta.map_origin[2]}).to(k_device);
+    k_inner_map_size = loaded_meta.inner_map_size;
+    k_x_min          = loaded_meta.x_min;   k_x_max = loaded_meta.x_max;
+    k_y_min          = loaded_meta.y_min;   k_y_max = loaded_meta.y_max;
+    k_z_min          = loaded_meta.z_min;   k_z_max = loaded_meta.z_max;
+    k_octree_level   = loaded_meta.octree_level;
+    k_map_resolution = loaded_meta.map_resolution;
+    k_map_size       = loaded_meta.map_size;
+    k_map_size_inv   = loaded_meta.map_size_inv;
+    k_fill_level     = loaded_meta.fill_level;
+
+    local_map_ptr = std::make_shared<LocalMap>(
+        k_map_origin, k_x_min, k_x_max, k_y_min, k_y_max, k_z_min, k_z_max);
+    for (auto &p : local_map_ptr->named_parameters())
+      cout << p.key() << p.value().sizes() << '\n';
+
+    local_map_ptr->p_acc_strcut_ =
+        std::shared_ptr<OctreeAS>(from_quantized_points(cached_qpts.cuda(), k_octree_level));
+
+    // Still need to reshape train_depth_pack_ (Section 5)
+    goto reshape_depth_pack;
+  }
+  // ------------------------------------------------------------------
+
+  {
   auto pcl_depth =
       data_loader_ptr->dataparser_ptr_->train_depth_pack_.depth.view({-1});
   auto valid_mask = (pcl_depth > k_min_range) & (pcl_depth < k_max_range);
@@ -535,8 +661,7 @@ bool NeuralSLAM::build_occ_map() {
   auto pcl =
       data_loader_ptr->dataparser_ptr_->train_depth_pack_.xyz.view({-1, 3})
           .index_select(0, valid_idx);
-  // calculate pcl's center
-  // and radius
+  // calculate pcl's center and radius
   auto pcl_center = pcl.mean(0).squeeze();
   auto pcl_radius = (pcl - pcl_center).norm(2, 1).max().item<float>();
 
@@ -841,11 +966,31 @@ bool NeuralSLAM::build_occ_map() {
   std::string as_prior_ply_file = k_output_path / "as_prior.ply";
   ply_utils::export_to_ply(as_prior_ply_file, world_points.cpu());
 
+  // Save occgrid cache
+  {
+    OccGridMeta meta = cache_key;
+    meta.map_origin[0]    = k_map_origin[0].item<float>();
+    meta.map_origin[1]    = k_map_origin[1].item<float>();
+    meta.map_origin[2]    = k_map_origin[2].item<float>();
+    meta.inner_map_size   = k_inner_map_size;
+    meta.x_min = k_x_min; meta.x_max = k_x_max;
+    meta.y_min = k_y_min; meta.y_max = k_y_max;
+    meta.z_min = k_z_min; meta.z_max = k_z_max;
+    meta.octree_level     = k_octree_level;
+    meta.map_resolution   = k_map_resolution;
+    meta.map_size         = k_map_size;
+    meta.map_size_inv     = k_map_size_inv;
+    meta.fill_level       = k_fill_level;
+    save_occ_cache(dense_voxels, meta);
+  }
+
   timer_cal_prior->toc_sum();
+  }  // end of build block (paired with the opening { after cache-miss path)
 
   //----------------------------------------------------------------------
   // SECTION 5: Reshape depth data for further processing
   //----------------------------------------------------------------------
+reshape_depth_pack:
 
   // Reshape origin data
   data_loader_ptr->dataparser_ptr_->train_depth_pack_.origin =
@@ -871,6 +1016,13 @@ bool NeuralSLAM::build_occ_map() {
         data_loader_ptr->dataparser_ptr_->train_depth_pack_.xyz.cpu());
   }
   return true;
+}
+
+bool NeuralSLAM::run_build_occgrid() {
+  if (k_prefilter > 0) {
+    prefilter_data(false);
+  }
+  return build_occ_map();
 }
 
 void NeuralSLAM::batch_train() {
@@ -1458,6 +1610,42 @@ void NeuralSLAM::export_checkpoint() {
     write_pt_params();
     std::cout << "Saved checkpoint to: " << save_path << "\n";
   }
+}
+
+void NeuralSLAM::export_checkpoint(int iter) {
+  if (k_output_path.empty()) return;
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "iter_%06d", iter);
+  auto save_dir = k_output_path / "checkpoints" / buf;
+  std::filesystem::create_directories(save_dir);
+  torch::save(local_map_ptr, save_dir / "local_map_checkpoint.pt");
+  std::cout << "[ckpt] Saved iter " << iter << " → " << save_dir << '\n';
+}
+
+void NeuralSLAM::eval_checkpoint(const std::filesystem::path &ckpt_path,
+                                  const std::filesystem::path &out_path,
+                                  bool do_render, bool do_mesh) {
+  // Reload network weights into the existing local_map_ptr (octree unchanged).
+  torch::load(local_map_ptr, ckpt_path / "local_map_checkpoint.pt");
+  train_callback(-1, RaySamples());
+
+  auto prev_output_path = k_output_path;
+  k_output_path = out_path;
+  std::filesystem::create_directories(out_path);
+
+  if (do_render && k_rgb_weight > 0) {
+    c10::cuda::CUDACachingAllocator::emptyCache();
+    render_path(false, k_fps);
+    render_path(true, 2);
+    eval_render();
+  }
+  if (do_mesh && k_sdf_weight > 0) {
+    c10::cuda::CUDACachingAllocator::emptyCache();
+    save_mesh(k_cull_mesh);
+    eval_mesh();
+  }
+
+  k_output_path = prev_output_path;
 }
 
 void NeuralSLAM::load_checkpoint(

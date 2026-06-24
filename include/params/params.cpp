@@ -31,7 +31,7 @@ float k_leaf_size, k_leaf_size_inv;
 int k_octree_level, k_fill_level;
 int k_map_resolution;
 
-int k_iter_step, k_export_interval, k_export_ckp_interval;
+int k_iter_step, k_export_interval, k_export_ckp_interval, k_ckpt_interval;
 int k_surface_sample_num, k_free_sample_num;
 float k_color_batch_pt_num;
 int k_batch_num;
@@ -385,6 +385,8 @@ void read_base_params(const std::filesystem::path &_base_config_path) {
 
   fsSettings["export_interval"] >> k_export_interval;
   fsSettings["export_ckp_interval"] >> k_export_ckp_interval;
+  k_ckpt_interval = 0;
+  fsSettings["ckpt_interval"] >> k_ckpt_interval;
   fsSettings["export_colmap_format"] >> k_export_colmap_format;
   fsSettings["export_train_pcl"] >> k_export_train_pcl;
   fsSettings.release();

@@ -1,0 +1,68 @@
+%YAML:1.0
+# rosrun neural_mapping neural_mapping_node src/RIM2/rim/config/neural_rgbd/neural_rgbd.yaml src/RIM2/data/neural_rgbd_data/kitchen_kitti_format
+
+base_config: "../base.yaml"
+scene_config: "fast_livo.yaml"
+
+iter_step: 200
+
+trace_iter: 100 # sphere tracing iteration times
+
+leaf_sizes: 0.2
+fill_level: 1
+bce_sigma: 1.0 # if get floaters, increase this value
+sphere_trace_thr: 1e-3
+
+camera:
+   model: 0 # 0: pinhole; 1: equidistant
+   width: 1280
+   height: 720
+
+   fx: 580.9368694958202
+   fy: 580.8762078586867
+   cx: 599.8374474091759
+   cy: 327.7756256909918
+
+   d0: -0.01179594666649537
+   d1: -0.005658416709347814
+   d2: -0.0002670633764150449
+   d3:  0.000576623385805698
+   d4: 0.0
+
+
+extrinsic:
+   # lidar to camera
+   T_C_L: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [  -0.061336,    -0.99771405,   -0.0283648,    0.09162524, 
+              0.00798572,     0.02792686,  -0.99957807,    0.04072245, 
+              0.99808523,    -0.06153663,   0.00625455,    -0.2027569,
+                     0.0,            0.0,          0.0,          1.0]
+
+   # lidar to base(imu)
+   T_B_L: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [ 1.0, 0.0, 0.0, 0, 
+              0.0, 1.0, 0.0, 0,
+              0.0, 0.0, 1.0, 0,
+              0.0, 0.0, 0.0, 1.0 ]
+
+pose_topic: "/aft_mapped_to_init"
+color_topic: "/origin_img"
+depth_topic: "/cloud_registered"
+
+max_time_diff_camera_and_pose: 0.05
+max_time_diff_lidar_and_pose: 0.05
+
+map:
+   map_origin: !!opencv-matrix
+      rows: 1
+      cols: 3
+      dt: d
+      data: [ 0, 0, 0 ]
+
+   map_size: 50
