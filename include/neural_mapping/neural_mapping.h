@@ -31,6 +31,11 @@ public:
   // Build occgrid only (no training). Use with mode=0 constructor.
   bool run_build_occgrid();
 
+  // 최종 occ grid(octree) 의 모든 voxel 에 대해 "어느 카메라 프레임에서 (가림
+  // 고려) 보이는가" LUT 를 만들어 occgrid_cache/visibility_lut.bin 에 저장.
+  // octree 가 준비된 뒤(build/cache-hit 무관) 호출한다. 정의는 visibility_lut.cpp.
+  void build_visibility_lut(int downscale = 8, float tol_factor = 1.0f);
+
   // Load a per-iter checkpoint (weights only, octree kept) and run render/mesh.
   // out_path: directory where results are written.
   void eval_checkpoint(const std::filesystem::path &ckpt_path,

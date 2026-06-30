@@ -397,7 +397,11 @@ void write_pt_params() {
   auto pt_config_file = k_output_path / "config/scene/pt.yaml";
   std::ofstream ofs(pt_config_file);
   ofs << "%YAML:1.0\n";
-  cv::Mat cv_map_origin(1, 3, CV_32FC1, k_map_origin.data_ptr());
+  // k_map_origin 이 GPU(cache-hit 경로)면 data_ptr()는 GPU 포인터라 cv::Mat 이
+  // CPU 에서 읽다 segfault 난다. CPU 복사본을 만들어 그 동안 살아있게 둔다.
+  auto map_origin_cpu =
+      k_map_origin.to(torch::kCPU).to(torch::kFloat32).contiguous();
+  cv::Mat cv_map_origin(1, 3, CV_32FC1, map_origin_cpu.data_ptr());
   ofs << "map_origin: !!opencv-matrix\n   rows: 1\n   cols: 3\n   dt: f\n"
          "   data: "
       << cv_map_origin << '\n';

@@ -12,7 +12,9 @@
 #include "optimizer/loss.h"
 #include "optimizer/loss_utils/loss_utils.h"
 #include "params/params.h"
+#include "utils/logger.h"
 #include "utils/sensor_utils/cameras.hpp"
+#include "utils/tensor_dump.hpp"
 #include "utils/tqdm.hpp"
 
 #include "kaolin_wisp_cpp/spc_ops/spc_ops.h"
@@ -31,6 +33,9 @@ NeuralSLAM::NeuralSLAM(const int &mode,
 
   read_params(_config_path, _data_path, mode);
 
+  // standalone leveled logger -> output/<run>/debug.log (level via M2_LOG_LEVEL)
+  logger::init(k_output_path / "debug.log", logger::Level::DEBUG);
+
   data_loader_ptr = std::make_unique<dataloader::DataLoader>(
       k_dataset_path, k_dataset_type, k_device, mode & k_preload, k_res_scale,
       k_sensor);
@@ -42,10 +47,12 @@ NeuralSLAM::NeuralSLAM(const int &mode,
     data_loader_ptr->export_as_colmap_format(true, false);
   }
 
-  if (mode) {
+  if (mode == 1) {
     mapper_thread = std::thread(&NeuralSLAM::batch_train, this);
     keyboard_thread = std::thread(&NeuralSLAM::keyboard_loop, this);
     misc_thread = std::thread(&NeuralSLAM::misc_loop, this);
+  } else if (mode == 2) {
+    // build-occgrid only: occ map은 run_build_occgrid()에서 빌드. 학습/pretrained 로드 없음.
   } else {
     k_output_path = _config_path.parent_path().parent_path().parent_path();
     load_pretrained(k_output_path);
@@ -90,6 +97,30 @@ DepthSamples NeuralSLAM::sample(DepthSamples _ray_samples, const int &iter,
   DepthSamples surface_samples;
   utils::sample_surface_pts(_ray_samples, surface_samples, k_surface_sample_num,
                             sample_std);
+
+  // --- [debug] 첫 호출에만 ray / raymarch / surface 샘플 덤프 (노트북 확인용) ---
+  {
+    static bool dumped = false;
+    if (!dumped) {
+      dumped = true;
+      auto dir = k_output_path / "sample_debug";
+      std::filesystem::create_directories(dir);
+      tdump::save((dir / "ray_origin.bin").string(), _ray_samples.origin);
+      tdump::save((dir / "ray_direction.bin").string(), _ray_samples.direction);
+      tdump::save((dir / "ray_depth.bin").string(), _ray_samples.depth);
+      tdump::save((dir / "ray_xyz.bin").string(), _ray_samples.xyz);
+      tdump::save((dir / "raymarch_xyz.bin").string(), point_samples.xyz);
+      tdump::save((dir / "raymarch_ridx.bin").string(), point_samples.ridx);
+      tdump::save((dir / "raymarch_depth.bin").string(), point_samples.depth);
+      tdump::save((dir / "raymarch_raysdf.bin").string(),
+                  point_samples.ray_sdf);
+      tdump::save((dir / "surface_xyz.bin").string(), surface_samples.xyz);
+      tdump::save((dir / "surface_ridx.bin").string(), surface_samples.ridx);
+      std::cout << "[sample_debug] ray/raymarch/surface dumped -> " << dir
+                << "\n";
+    }
+  }
+
   point_samples = point_samples.cat(surface_samples);
 
   auto trunc_idx = (point_samples.ray_sdf.abs() > k_truncated_dis)
@@ -239,6 +270,23 @@ torch::Tensor NeuralSLAM::color_train_batch_iter(const int &iter) {
   auto trace_results =
       tracer::render_ray(local_map_ptr, color_ray_samples.origin,
                          color_ray_samples.direction, 1, k_trace_iter);
+
+  // --- [debug] 첫 호출에만 sphere-tracing 결과 덤프 (노트북 확인용) ---
+  {
+    static bool dumped = false;
+    if (!dumped && !trace_results.empty()) {
+      dumped = true;
+      auto dir = k_output_path / "sample_debug";
+      std::filesystem::create_directories(dir);
+      tdump::save((dir / "strace_ray_origin.bin").string(),
+                  color_ray_samples.origin);
+      tdump::save((dir / "strace_ray_direction.bin").string(),
+                  color_ray_samples.direction);
+      tdump::save((dir / "strace_pts.bin").string(), trace_results[3]);
+      tdump::save((dir / "strace_depth.bin").string(), trace_results[6]);
+      std::cout << "[sample_debug] sphere-trace dumped -> " << dir << "\n";
+    }
+  }
 
   auto loss = torch::tensor(0.0f, k_device);
   if (!trace_results.empty()) {
@@ -551,7 +599,12 @@ struct OccGridMeta {
 };
 
 std::filesystem::path occ_cache_dir() {
-  return k_dataset_path / "occgrid_cache";
+  // k_dataset_path may be a file (e.g. .bag / color_poses.txt). Creating a dir
+  // under a file fails ("Not a directory"), so fall back to its parent folder.
+  auto base = k_dataset_path;
+  if (std::filesystem::is_regular_file(base))
+    base = base.parent_path();
+  return base / "occgrid_cache";
 }
 
 bool save_occ_cache(const torch::Tensor &dense_voxels,

@@ -1,0 +1,38 @@
+%YAML:1.0
+
+base_config: "../base.yaml"
+
+preload: 1 # 0: disable; 1: enable # accelerate the loading process but will cost more memory
+llff: 1 # 0: disable; 1: enable; every 8 frame will be used for evaluation
+prob_map_en: 1 # 0: disable; 1: enable; Whether the map is a probabilistic map
+
+# dataset_type
+#   Replica = 0,
+#   R3live = 1,
+#   NeuralRGBD = 2,
+#   KITTI = 3,
+#   FastLivo = 4,
+dataset_type: 4
+dir_embedding_degree: 4
+
+min_range: 0.01
+max_range: 100
+ds_pt_num: 10000 # downsampled point number
+max_pt_num: 1000000
+
+outlier_remove: 1 # unnecessary for static scenes
+outlier_dist: 0.05
+outlier_removal_interval: 2000
+
+# visualization
+vis_attribute: 2 # 0: disable to save storage; 1: normal; 2: color
+vis_resolution: 0.1 # better no more than leaf_sizes or will miss faces
+export_resolution: 0.04
+fps: 10
+
+
+
+use_image_feature: 1        # 0: 기존 baseline(꺼짐) / 1: 켜기
+image_feature_dim: 3        # per-view feature 채널 수. RGB면 3 (decoder 입력에 2*3+1=7 추가)
+image_feature_max_views: 64 # 투영에 쓸 view 수(균등 subsample). GPU 메모리 따라 조절
+image_feature_trainable: 0  # Phase1=0(frozen/stop-grad). encoder 붙인 뒤 Phase2에서 1

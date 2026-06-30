@@ -132,6 +132,7 @@ add_library(loss_utils include/optimizer/loss.cpp
 target_link_libraries(loss_utils ${TORCH_LIBRARIES})
 
 add_library(neural_mapping_lib include/neural_mapping/neural_mapping.cpp
+                               include/neural_mapping/visibility_lut.cpp
                                include/params/params.cpp)
 target_link_libraries(
   neural_mapping_lib
@@ -148,6 +149,10 @@ target_link_libraries(neural_mapping_node neural_mapping_lib)
 
 add_executable(build_occgrid_node src/build_occgrid_node.cpp)
 target_link_libraries(build_occgrid_node neural_mapping_lib)
+
+# standalone occ-grid build test (run_build_occgrid 정의를 자체 포함)
+add_executable(test_build_occgrid_node src/test_build_occgrid_node.cpp)
+target_link_libraries(test_build_occgrid_node neural_mapping_lib)
 
 add_executable(eval_checkpoints_node src/eval_checkpoints_node.cpp)
 target_link_libraries(eval_checkpoints_node neural_mapping_lib)

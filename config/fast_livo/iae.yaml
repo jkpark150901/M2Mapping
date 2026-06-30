@@ -4,7 +4,7 @@
 base_config: "../base.yaml"
 scene_config: "fast_livo.yaml"
 
-iter_step: 100000
+iter_step: 20000
 
 trace_iter: 100 # sphere tracing iteration times
 

@@ -1,0 +1,41 @@
+%YAML:1.0
+
+debug: 0 # 0: disable; 1: enable
+
+device_param: 1 # 0: cpu; 1: gpu
+
+# tcnn encoder params
+n_levels: 16
+n_features_per_level: 2
+log2_hashmap_size: 19
+
+# tcnn decoder params
+hidden_dim: 64
+geo_feat_dim: 14 # geo_feat_dim + k_strc_dim <= 16 / 8 / 4 / 2 or tcnn decoder will become cutlass and crash
+geo_num_layer: 3
+color_hidden_dim: 64
+color_num_layer: 3
+
+# rim params
+trunc_sdf: 1
+surface_sample_num: 3
+free_sample_num: 3
+color_batch_pt_num: 256000 # color render pt batch size
+
+lr: 5e-3
+lr_end: 1e-4
+
+sdf_weight: 1.0
+eikonal_weight: 1e-1 # it will greatly affect structure
+curvate_weight: 5e-4 # should be the same loss level to eikonal loss
+dist_weight: 1e-1
+
+rgb_weight: 10.0
+
+# visualization
+vis_frame_step: 10
+
+export_interval: 1000 # every export_interval frames, the test will be exported
+ckpt_interval: 0     # save checkpoint every N iters (0 = disabled)
+export_colmap_format: 0 # 0: disable; 1: for 3dgs; 2: for nerfstudio colmap
+export_train_pcl: 0 # 0: disable; 1: enable
