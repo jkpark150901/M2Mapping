@@ -16,6 +16,7 @@ int k_image_feature_dim;
 int k_image_feature_views_cap;
 float k_image_feature_scale;
 int k_image_feature_ablation;
+float k_consist_weight;
 
 torch::Tensor k_map_origin;
 float k_prefilter;
@@ -336,6 +337,9 @@ void read_scene_params(const std::filesystem::path &_scene_config_path) {
     fsSettings["image_feature_scale"] >> k_image_feature_scale;
   if (!fsSettings["image_feature_ablation"].isNone())
     fsSettings["image_feature_ablation"] >> k_image_feature_ablation;
+  k_consist_weight = 0.0f;
+  if (!fsSettings["consist_weight"].isNone())
+    fsSettings["consist_weight"] >> k_consist_weight;
   fsSettings["cull_mesh"] >> k_cull_mesh;
   fsSettings["prob_map_en"] >> k_prob_map_en;
 

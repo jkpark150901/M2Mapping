@@ -16,6 +16,7 @@ extern int k_image_feature_dim;        // per-view feature 채널 (RGB=3)
 extern int k_image_feature_views_cap;  // voxel 당 최대 visible 뷰 수 K
 extern float k_image_feature_scale;    // feature map 다운샘플 비율(메모리)
 extern int k_image_feature_ablation;   // 0: normal, 1: zero, 2: rolled
+extern float k_consist_weight;         // multi-view NCC consistency loss weight (0=off)
 
 extern torch::Tensor k_map_origin;
 extern float k_prefilter;

@@ -1,7 +1,10 @@
 #include "neural_net/image_feature_field.h"
 #include "params/params.h"
 
+#include <c10/cuda/CUDACachingAllocator.h>
+
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -117,16 +120,56 @@ void ImageFeatureField::init(const torch::Tensor &train_color,
   feature_net_->to(dev);
   compress_layer_->to(dev);
 
-  // ---- 1) feature map: train RGB -> [V,Hs,Ws,C] (bilinear gather 용) ----
+  // ---- 1) feature map: [V,Hs,Ws,C] ----
   int V = train_color.size(0);
   int H = train_color.size(1), W = train_color.size(2);
-  int Hs = std::max(1, (int)std::round(H * feat_scale));
-  int Ws = std::max(1, (int)std::round(W * feat_scale));
-  Hs_ = Hs;
-  Ws_ = Ws;
   torch::Tensor feat_hwc;
-  {
-    // frozen encoder 를 뷰 청크로 돌려 feature map [V,Hs,Ws,C] 생성 (init 1회)
+  float fxs, fys, cxs, cys;
+
+  if (k_image_feature_backbone == 2) {
+    // ---- precomputed 외부 백본(DINOv2 등) feature 로드 ----
+    // <lut dir>/image_features.bin : int64 V,C,Hs,Ws + float32[V*Hs*Ws*C]
+    auto feat_path =
+        std::filesystem::path(lut_path).parent_path() / "image_features.bin";
+    std::ifstream ff(feat_path, std::ios::binary);
+    if (!ff) {
+      std::cerr << "[img_feat] precomputed feature 로드 실패: " << feat_path
+                << " (precompute_image_features.py 먼저 실행)\n";
+      return;
+    }
+    int64_t Vf = 0, Cf = 0, Hf = 0, Wf = 0;
+    ff.read((char *)&Vf, 8);
+    ff.read((char *)&Cf, 8);
+    ff.read((char *)&Hf, 8);
+    ff.read((char *)&Wf, 8);
+    std::vector<float> buf((size_t)Vf * Hf * Wf * Cf);
+    ff.read((char *)buf.data(), (std::streamsize)(buf.size() * sizeof(float)));
+    feat_hwc = torch::from_blob(buf.data(), {Vf, Hf, Wf, Cf}, torch::kFloat32)
+                   .clone()
+                   .to(dev); // [V,Hs,Ws,C]
+    Hs_ = (int)Hf;
+    Ws_ = (int)Wf;
+    feat_dim_ = (int)Cf;
+    if (Vf != V)
+      std::cerr << "[img_feat] 경고: precomputed views(" << Vf
+                << ") != train views(" << V << ")\n";
+    if ((int)Cf != k_image_feature_dim)
+      std::cerr << "[img_feat] 경고: precomputed C(" << Cf
+                << ") != image_feature_dim(" << k_image_feature_dim
+                << ") -> decoder 차원 불일치\n";
+    // feature map 해상도(Hf,Wf)에 맞춰 intrinsic 스케일
+    fxs = camera.fx * (float)Ws_ / (float)W;
+    fys = camera.fy * (float)Hs_ / (float)H;
+    cxs = camera.cx * (float)Ws_ / (float)W;
+    cys = camera.cy * (float)Hs_ / (float)H;
+    std::cout << "[img_feat] precomputed features: V=" << Vf << " C=" << Cf
+              << " " << Wf << "x" << Hf << "\n";
+  } else {
+    // ---- frozen encoder(FeatureNet) 를 뷰 청크로 실행해 feature map 생성 ----
+    int Hs = std::max(1, (int)std::round(H * feat_scale));
+    int Ws = std::max(1, (int)std::round(W * feat_scale));
+    Hs_ = Hs;
+    Ws_ = Ws;
     std::vector<torch::Tensor> fm;
     const int VCH = (k_image_feature_backbone == 1) ? 8 : 32;
     feature_net_->eval();
@@ -166,10 +209,12 @@ void ImageFeatureField::init(const torch::Tensor &train_color,
       fm.push_back(sm.permute({0, 2, 3, 1}).contiguous()); // [c,Hs,Ws,C]
     }
     feat_hwc = torch::cat(fm, 0); // [V,Hs,Ws,C]
+    float s = feat_scale;
+    fxs = camera.fx * s;
+    fys = camera.fy * s;
+    cxs = camera.cx * s;
+    cys = camera.cy * s;
   }
-  float s = feat_scale;
-  float fxs = camera.fx * s, fys = camera.fy * s;
-  float cxs = camera.cx * s, cys = camera.cy * s;
   fxs_ = fxs;
   fys_ = fys;
   cxs_ = cxs;
@@ -255,18 +300,18 @@ void ImageFeatureField::init(const torch::Tensor &train_color,
     auto zc = torch::where(z.abs() < 1e-9f, torch::full_like(z, 1e-9f), z);
     auto upx = Xc.select(2, 0) * fxs / zc + cxs;          // [c,K]
     auto vpx = Xc.select(2, 1) * fys / zc + cys;
-    auto ok = (z > 0) & (upx >= 0) & (upx < (float)Ws) & (vpx >= 0) &
-              (vpx < (float)Hs) & cam_ok;                  // [c,K]
+    auto ok = (z > 0) & (upx >= 0) & (upx < (float)Ws_) & (vpx >= 0) &
+              (vpx < (float)Hs_) & cam_ok;                 // [c,K]
 
     auto ci = camc.reshape(-1);
     auto uf = upx.reshape(-1), vf = vpx.reshape(-1);
     auto okf = ok.reshape(-1).to(torch::kFloat32);
     auto x0 = torch::floor(uf), y0 = torch::floor(vf);
     auto wx = (uf - x0).unsqueeze(1), wy = (vf - y0).unsqueeze(1);
-    auto x0i = x0.to(torch::kLong).clamp(0, Ws - 1);
-    auto x1i = (x0.to(torch::kLong) + 1).clamp(0, Ws - 1);
-    auto y0i = y0.to(torch::kLong).clamp(0, Hs - 1);
-    auto y1i = (y0.to(torch::kLong) + 1).clamp(0, Hs - 1);
+    auto x0i = x0.to(torch::kLong).clamp(0, Ws_ - 1);
+    auto x1i = (x0.to(torch::kLong) + 1).clamp(0, Ws_ - 1);
+    auto y0i = y0.to(torch::kLong).clamp(0, Hs_ - 1);
+    auto y1i = (y0.to(torch::kLong) + 1).clamp(0, Hs_ - 1);
     auto gg = [&](const torch::Tensor &yy, const torch::Tensor &xx) {
       return feat_hwc_dev.index({ci, yy, xx}); // [c*K, C]
     };
@@ -283,6 +328,12 @@ void ImageFeatureField::init(const torch::Tensor &train_color,
     chunks.push_back(torch::cat({mean, var, cov}, -1));  // [c,2C+1]
   }
   vox_feat_ = torch::cat(chunks, 0).contiguous();        // [Nv,2C+1]
+
+  // bake 용 feature map(대용량, ~수 GB)은 이제 불필요 -> 명시적 해제 후 캐시 반환.
+  // (PyTorch 캐시에 남으면 tcnn cuMemCreate 가 쓸 연속 메모리를 잠식해 backward OOM)
+  feat_hwc = torch::Tensor();
+  feat_hwc_dev = torch::Tensor();
+  c10::cuda::CUDACachingAllocator::emptyCache();
 
   // encoder(FeatureNet+compress) 는 frozen (pretrained 사용 전제) -> grad X
   for (auto &p : feature_net_->parameters())
@@ -301,7 +352,7 @@ void ImageFeatureField::init(const torch::Tensor &train_color,
   }
 
   std::cout << "[img_feat] baked conditional volume: voxels=" << Nv
-            << " views=" << V << " featmap=" << Ws << "x" << Hs << " K=" << K
+            << " views=" << V << " featmap=" << Ws_ << "x" << Hs_ << " K=" << K
             << " out_dim=" << out_dim()
             << " embed_mlp=" << (embed_mlp_ ? "on" : "off") << "\n";
 }

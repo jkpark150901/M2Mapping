@@ -38,3 +38,4 @@ image_feature_views_cap: 16 # voxel 당 사용할 최대 visible 뷰 수 K
 image_feature_scale: 0.25   # feature map 다운샘플 비율(메모리)
 image_feature_ablation: 0   # 0: normal / 1: zero extra dims / 2: rolled wrong feature
 image_feature_trainable: 1  # 0: bake frozen volume / 1: project features with gradient
+
