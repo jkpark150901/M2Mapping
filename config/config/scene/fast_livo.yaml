@@ -33,6 +33,8 @@ fps: 10
 
 
 use_image_feature: 1        # 0: 기존 baseline(꺼짐) / 1: 켜기
-image_feature_dim: 3        # per-view feature 채널 수. RGB면 3 (decoder 입력에 2*3+1=7 추가)
-image_feature_max_views: 64 # 투영에 쓸 view 수(균등 subsample). GPU 메모리 따라 조절
-image_feature_trainable: 0  # Phase1=0(frozen/stop-grad). encoder 붙인 뒤 Phase2에서 1
+image_feature_backbone: 1   # 0: RGB / 1: SparseNeuS FeatureNet + 56->16 compress
+image_feature_dim: 16       # SparseNeuS compressed per-view 채널. decoder 입력 += 2*16+1=33
+image_feature_views_cap: 64 # voxel 당 사용할 최대 visible 뷰 수 K
+image_feature_ablation: 0   # 0: normal / 1: zero extra dims / 2: rolled wrong feature
+image_feature_trainable: 1  # 0: bake frozen volume / 1: project features with gradient

@@ -29,3 +29,12 @@ vis_attribute: 2 # 0: disable to save storage; 1: normal; 2: color
 vis_resolution: 0.1 # better no more than leaf_sizes or will miss faces
 export_resolution: 0.04
 fps: 10
+
+# LUT 기반 multi-view image feature (SparseNeuS 식). visibility_lut.bin 필요.
+use_image_feature: 1        # 0: baseline / 1: 켜기
+image_feature_backbone: 1   # 0: RGB / 1: SparseNeuS FeatureNet + 56->16 compress
+image_feature_dim: 16       # SparseNeuS compressed per-view 채널. decoder 입력 += 2*16+1=33
+image_feature_views_cap: 16 # voxel 당 사용할 최대 visible 뷰 수 K
+image_feature_scale: 0.25   # feature map 다운샘플 비율(메모리)
+image_feature_ablation: 0   # 0: normal / 1: zero extra dims / 2: rolled wrong feature
+image_feature_trainable: 1  # 0: bake frozen volume / 1: project features with gradient

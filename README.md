@@ -150,6 +150,7 @@ Our paper is accepted by ICRA 2025. If you use M2Mapping for your academic resea
     # If ROS is installed, you can also run the following command:
     # rosrun neural_mapping neural_mapping_node train src/M2Mapping/config/fast_livo/campus.yaml src/M2Mapping/data/FAST_LIVO2_RIM_Datasets/campus/color_poses.txt
     rosrun neural_mapping neural_mapping_node train src/M2Mapping/config/fast_livo/campus.yaml src/M2Mapping/data/iae_map/color_poses.txt
+     rosrun neural_mapping neural_mapping_node train   src/M2Mapping/config/fast_livo/iae.yaml   /datasets/iae_5f/map_0410/map_sync.bag
 ```
 
 After running, the training and evaluation results will be saved in the `src/M2Mapping/output` directory.

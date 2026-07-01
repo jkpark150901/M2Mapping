@@ -8,6 +8,15 @@ extern bool k_debug;
 extern int k_dataset_type;
 extern bool k_preload;
 
+// LUT 기반 multi-view image feature (SparseNeuS 식, OGM)
+extern bool k_use_image_feature;
+extern int k_image_feature_backbone;   // 0: RGB, 1: SparseNeuS FeatureNet
+extern bool k_image_feature_trainable; // true: sample projects with grad
+extern int k_image_feature_dim;        // per-view feature 채널 (RGB=3)
+extern int k_image_feature_views_cap;  // voxel 당 최대 visible 뷰 수 K
+extern float k_image_feature_scale;    // feature map 다운샘플 비율(메모리)
+extern int k_image_feature_ablation;   // 0: normal, 1: zero, 2: rolled
+
 extern torch::Tensor k_map_origin;
 extern float k_prefilter;
 extern float k_max_time_diff_camera_and_pose, k_max_time_diff_lidar_and_pose;

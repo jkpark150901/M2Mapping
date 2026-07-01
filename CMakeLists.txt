@@ -118,7 +118,8 @@ target_link_libraries(data_loader data_parser ray_utils)
 add_library(
   neural_net
   include/params/params.cpp include/neural_net/sub_map.cpp
-  include/neural_net/encoding_map.cpp include/neural_net/local_map.cpp)
+  include/neural_net/encoding_map.cpp include/neural_net/local_map.cpp
+  include/neural_net/image_feature_field.cpp)
 target_link_libraries(neural_net mesher kaolin_wisp_cpp tcnn_binding llog
                       ray_utils)
 

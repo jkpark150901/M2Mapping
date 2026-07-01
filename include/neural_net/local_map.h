@@ -2,6 +2,7 @@
 
 #include "mesher/mesher.h"
 #include "neural_net/encoding_map.h"
+#include "neural_net/image_feature_field.h"
 #include "tcnn_binding/tcnn_binding.h"
 #include "utils/ray_utils/ray_utils.h"
 
@@ -20,6 +21,12 @@ struct LocalMap : SubMap {
   std::shared_ptr<TCNNNetwork> p_decoder_tcnn_, p_color_decoder_tcnn_;
   std::shared_ptr<TCNNEncoding> p_dir_encoder_tcnn_;
   torch::Tensor dir_mask;
+
+  // LUT 기반 multi-view image feature condition (get_sdf 에서 주입)
+  ImageFeatureField::Ptr p_image_feat_field_;
+  void init_image_feature_field(const torch::Tensor &train_color,
+                                const torch::Tensor &train_color_poses,
+                                const sensor::Cameras &camera);
 
   torch::Tensor partition_pos_W_M_;   // pos: Map(xyz) to World;
   torch::Tensor partition_map_index_; // index: Map to World; [3]

@@ -1068,6 +1068,17 @@ reshape_depth_pack:
         train_points_ply_file,
         data_loader_ptr->dataparser_ptr_->train_depth_pack_.xyz.cpu());
   }
+
+  // octree 준비 완료 -> LUT 기반 image feature 필드 초기화 (visibility_lut.bin 필요)
+  if (k_use_image_feature) {
+    auto &dp = *data_loader_ptr->dataparser_ptr_;
+    int n_color = dp.size(dataparser::DataType::TrainColor);
+    local_map_ptr->init_image_feature_field(
+        dp.train_color_,
+        dp.get_pose(torch::arange(n_color, torch::kLong),
+                    dataparser::DataType::TrainColor),
+        dp.sensor_.camera);
+  }
   return true;
 }
 

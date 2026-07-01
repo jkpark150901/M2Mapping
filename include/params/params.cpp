@@ -9,6 +9,14 @@ bool k_debug;
 int k_dataset_type;
 bool k_preload;
 
+bool k_use_image_feature;
+int k_image_feature_backbone;
+bool k_image_feature_trainable;
+int k_image_feature_dim;
+int k_image_feature_views_cap;
+float k_image_feature_scale;
+int k_image_feature_ablation;
+
 torch::Tensor k_map_origin;
 float k_prefilter;
 float k_max_time_diff_camera_and_pose, k_max_time_diff_lidar_and_pose;
@@ -303,6 +311,31 @@ void read_scene_params(const std::filesystem::path &_scene_config_path) {
 
   fsSettings["preload"] >> k_preload;
   fsSettings["llff"] >> k_llff;
+
+  // image feature (없는 config 면 비활성 기본값)
+  k_use_image_feature = false;
+  k_image_feature_backbone = 0;
+  k_image_feature_trainable = false;
+  k_image_feature_dim = 3;
+  k_image_feature_views_cap = 16;
+  k_image_feature_scale = 0.25f;
+  k_image_feature_ablation = 0;
+  if (!fsSettings["use_image_feature"].isNone())
+    fsSettings["use_image_feature"] >> k_use_image_feature;
+  if (!fsSettings["image_feature_backbone"].isNone())
+    fsSettings["image_feature_backbone"] >> k_image_feature_backbone;
+  if (!fsSettings["image_feature_trainable"].isNone())
+    fsSettings["image_feature_trainable"] >> k_image_feature_trainable;
+  if (!fsSettings["image_feature_dim"].isNone())
+    fsSettings["image_feature_dim"] >> k_image_feature_dim;
+  if (k_image_feature_backbone == 1)
+    k_image_feature_dim = 16;
+  if (!fsSettings["image_feature_views_cap"].isNone())
+    fsSettings["image_feature_views_cap"] >> k_image_feature_views_cap;
+  if (!fsSettings["image_feature_scale"].isNone())
+    fsSettings["image_feature_scale"] >> k_image_feature_scale;
+  if (!fsSettings["image_feature_ablation"].isNone())
+    fsSettings["image_feature_ablation"] >> k_image_feature_ablation;
   fsSettings["cull_mesh"] >> k_cull_mesh;
   fsSettings["prob_map_en"] >> k_prob_map_en;
 

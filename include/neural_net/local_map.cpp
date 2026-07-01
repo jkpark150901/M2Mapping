@@ -7,6 +7,7 @@
 #include "params/params.h"
 #include "utils/coordinates.h"
 #include "utils/utils.h"
+#include <filesystem>
 #include <kaolin/csrc/render/spc/raytrace.h>
 
 #include "mesher/cumcubes/include/cumcubes.hpp"
@@ -31,14 +32,22 @@ LocalMap::LocalMap(const torch::Tensor &_pos_W_M, float _x_min, float _x_max,
   int color_encode_feat_dim =
       p_encoding_map_->p_color_encoder_tcnn_->get_out_dim();
 
+  // LUT 기반 image feature condition: decoder 입력에 [mean,var,coverage] 추가
+  int img_feat_dim = 0;
+  if (k_use_image_feature) {
+    p_image_feat_field_ = std::make_shared<ImageFeatureField>();
+    register_module("image_feature_field", p_image_feat_field_);
+    img_feat_dim = ImageFeatureField::out_dim(k_image_feature_dim);
+  }
+
   nlohmann::json network_config = {
       {"otype", "FullyFusedMLP"},           {"activation", "ReLU"},
       {"output_activation", "None"},        {"n_neurons", k_hidden_dim},
       {"n_hidden_layers", k_geo_num_layer},
   };
 
-  p_decoder_tcnn_ = std::make_shared<TCNNNetwork>(encode_feat_dim, k_strc_dim,
-                                                  network_config, "decoder");
+  p_decoder_tcnn_ = std::make_shared<TCNNNetwork>(
+      encode_feat_dim + img_feat_dim, k_strc_dim, network_config, "decoder");
 
   p_decoder_tcnn_->params_ = register_parameter(p_decoder_tcnn_->name_,
                                                 p_decoder_tcnn_->params_, true);
@@ -90,6 +99,22 @@ std::vector<torch::Tensor> LocalMap::get_sdf(const torch::Tensor &xyz,
   p_t_get_feat->tic();
   torch::Tensor xyz_feat = get_feat(xyz, 0, normalized);
   p_t_get_feat->toc_sum();
+
+  // LUT 기반 multi-view image feature 주입 (LiDAR/render/mesh 가 동일 condition 공유)
+  if (p_image_feat_field_) {
+    torch::Tensor img;
+    if (p_image_feat_field_->initialized())
+      img = p_image_feat_field_->sample(xyz)[0];
+    else // 아직 init 안됨 -> decoder 입력 차원 맞추려 0 으로 채움
+      img = torch::zeros({xyz.size(0), p_image_feat_field_->out_dim()},
+                         xyz_feat.options());
+    if (k_image_feature_ablation == 1) {
+      img = torch::zeros_like(img);
+    } else if (k_image_feature_ablation == 2 && img.size(0) > 1) {
+      img = torch::roll(img, {1}, {0});
+    }
+    xyz_feat = torch::cat({xyz_feat, img.to(xyz_feat.scalar_type())}, 1);
+  }
 
   static auto p_t_forward = llog::CreateTimer("   forward");
   p_t_forward->tic();
@@ -518,6 +543,20 @@ DepthSamples LocalMap::filter_sample(DepthSamples &_samples) {
   auto normalized_xyz = xyz_to_m1p1_pts(_samples.xyz);
   auto query_results = p_acc_strcut_->query(normalized_xyz);
   return _samples.index({query_results.pidx > -1});
+}
+
+void LocalMap::init_image_feature_field(
+    const torch::Tensor &train_color, const torch::Tensor &train_color_poses,
+    const sensor::Cameras &camera) {
+  if (!p_image_feat_field_)
+    return;
+  auto base = k_dataset_path;
+  if (std::filesystem::is_regular_file(base))
+    base = base.parent_path();
+  auto lut = (base / "occgrid_cache" / "visibility_lut.bin").string();
+  p_image_feat_field_->init(train_color, train_color_poses, camera, lut,
+                            k_leaf_size, k_image_feature_views_cap,
+                            k_image_feature_scale);
 }
 
 void LocalMap::freeze_decoder() {
